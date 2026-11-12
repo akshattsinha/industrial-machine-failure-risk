@@ -6,37 +6,257 @@ import { useState } from "react";
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
-type Prediction = {
-  failure_probability: number;
-  risk_level: string;
+type MachineForm = {
+  machine_type: string;
+  air_temperature: string;
+  process_temperature: string;
+  rotational_speed: string;
+  torque: string;
+  tool_wear: string;
 };
 
-type ApiResponse = {
-  status: string;
-  predictions: {
-    logistic_regression: Prediction;
-    pca_logistic_regression: Prediction;
-    random_forest: Prediction;
-  };
-  note?: string;
+type PredictionResponse = {
+  results?: Record<string, unknown>;
+  detail?: string;
 };
+
+const initialForm: MachineForm = {
+  machine_type: "M",
+  air_temperature: "298.1",
+  process_temperature: "308.6",
+  rotational_speed: "1551",
+  torque: "42.8",
+  tool_wear: "108",
+};
+
+const modelSections = [
+  {
+    key: "bayes_rule",
+    number: "01",
+    title: "Bayes Rule",
+    description: "Conditional probability and sensor-based failure risk analysis.",
+  },
+  {
+    key: "logistic_regression",
+    number: "02",
+    title: "Logistic Regression",
+    description: "Binary classification and estimated failure probability.",
+  },
+  {
+    key: "pca",
+    number: "03",
+    title: "Principal Component Analysis",
+    description: "Dimensionality reduction followed by failure classification.",
+  },
+  {
+    key: "hidden_markov_model",
+    number: "04",
+    title: "Hidden Markov Model",
+    description: "Inference of the most likely hidden operating state.",
+  },
+  {
+    key: "random_forest",
+    number: "05",
+    title: "Random Forest",
+    description: "Ensemble-based machine failure classification.",
+  },
+];
+
+function formatLabel(key: string) {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\[.*?\]/g, "")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return "Not available";
+
+  if (typeof value === "boolean") {
+    if (key.toLowerCase().includes("predicted_failure")) {
+      return value ? "Failure predicted" : "No failure predicted";
+    }
+    return value ? "Yes" : "No";
+  }
+
+  if (typeof value === "number") {
+    const percentageField =
+      /probability|variance_retained|percentage|accuracy|precision|recall|f1|auc/i.test(
+        key
+      );
+
+    if (percentageField && value >= 0 && value <= 1) {
+      return `${(value * 100).toFixed(2)}%`;
+    }
+
+    return Number.isInteger(value) ? String(value) : value.toFixed(4);
+  }
+
+  if (typeof value === "string") return value;
+
+  return "";
+}
+
+function ResultValue({
+  label,
+  value,
+  depth = 0,
+}: {
+  label: string;
+  value: unknown;
+  depth?: number;
+}) {
+  if (value === null || value === undefined) {
+    return (
+      <div className="text-sm text-gray-400">
+        {formatLabel(label)}: Not available
+      </div>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-gray-700">
+          {formatLabel(label)}
+        </p>
+        {value.map((item, index) => (
+          <div
+            key={index}
+            className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700"
+          >
+            {typeof item === "object" && item !== null ? (
+              <ResultObject data={item as Record<string, unknown>} depth={depth + 1} />
+            ) : (
+              String(item)
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (typeof value === "object") {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-gray-700">
+          {formatLabel(label)}
+        </p>
+        <div className="rounded-lg bg-gray-50 p-3">
+          <ResultObject
+            data={value as Record<string, unknown>}
+            depth={depth + 1}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-gray-100 py-3 last:border-0">
+      <span className="text-sm text-gray-500">{formatLabel(label)}</span>
+      <span className="max-w-[60%] text-right text-sm font-semibold text-gray-900">
+        {formatValue(label, value)}
+      </span>
+    </div>
+  );
+}
+
+function ResultObject({
+  data,
+  depth = 0,
+}: {
+  data: Record<string, unknown>;
+  depth?: number;
+}) {
+  if (depth > 4) {
+    return <p className="text-xs text-gray-500">Additional nested data</p>;
+  }
+
+  const entries = Object.entries(data);
+
+  if (entries.length === 0) {
+    return <p className="text-sm text-gray-400">No results available.</p>;
+  }
+
+  return (
+    <div className="space-y-1">
+      {entries.map(([key, value]) => (
+        <ResultValue key={key} label={key} value={value} depth={depth} />
+      ))}
+    </div>
+  );
+}
+
+function PredictionCard({
+  number,
+  title,
+  description,
+  prediction,
+}: {
+  number: string;
+  title: string;
+  description: string;
+  prediction: unknown;
+}) {
+  const available =
+    prediction !== null &&
+    prediction !== undefined &&
+    typeof prediction === "object";
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="mb-5 flex items-start gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-sm font-bold text-indigo-700">
+          {number}
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          <p className="mt-1 text-sm text-gray-500">{description}</p>
+        </div>
+      </div>
+
+      {available ? (
+        <ResultObject data={prediction as Record<string, unknown>} />
+      ) : (
+        <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">
+          Results are unavailable for this model. Check that its trained model
+          artifact is loaded by the backend.
+        </p>
+      )}
+    </section>
+  );
+}
 
 export default function Home() {
-  const [machineType, setMachineType] = useState("M");
-  const [airTemperature, setAirTemperature] = useState("298.1");
-  const [processTemperature, setProcessTemperature] = useState("308.6");
-  const [rpm, setRpm] = useState("1551");
-  const [torque, setTorque] = useState("42.8");
-  const [toolWear, setToolWear] = useState("108");
-
-  const [result, setResult] = useState<ApiResponse | null>(null);
+  const [form, setForm] = useState<MachineForm>(initialForm);
+  const [results, setResults] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function predictFailure() {
+  function updateField(field: keyof MachineForm, value: string) {
+    setForm((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
+  }
+
+  async function analyseMachine(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
     setLoading(true);
     setError("");
-    setResult(null);
+    setResults(null);
+
+    const payload = {
+      machine_type: form.machine_type,
+      air_temperature: Number(form.air_temperature),
+      process_temperature: Number(form.process_temperature),
+      rotational_speed: Number(form.rotational_speed),
+      torque: Number(form.torque),
+      tool_wear: Number(form.tool_wear),
+    };
 
     try {
       const response = await fetch(`${API_URL}/predict`, {
@@ -44,321 +264,258 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          machine_type: machineType,
-          air_temperature: Number(airTemperature),
-          process_temperature: Number(processTemperature),
-          rotational_speed: Number(rpm),
-          torque: Number(torque),
-          tool_wear: Number(toolWear),
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const data: PredictionResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Prediction failed");
+        const errorMessage =
+          typeof data.detail === "string"
+            ? data.detail
+            : JSON.stringify(data.detail ?? data);
+
+        throw new Error(
+          `Backend error (${response.status}): ${errorMessage}`
+        );
       }
 
-      setResult(data);
+      if (!data.results || typeof data.results !== "object") {
+        throw new Error(
+          "The backend response does not contain a valid results object. Check your FastAPI /predict endpoint."
+        );
+      }
+
+      setResults(data.results);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Could not connect to prediction API."
+          : "Unable to connect to the prediction server."
       );
     } finally {
       setLoading(false);
     }
   }
 
-  function riskColor(level: string) {
-    if (level === "HIGH") return "text-red-600 bg-red-50";
-    if (level === "MEDIUM") return "text-amber-700 bg-amber-50";
-    return "text-emerald-700 bg-emerald-50";
-  }
-
-  function PredictionCard({
-    title,
-    prediction,
-  }: {
-    title: string;
-    prediction: Prediction;
-  }) {
-    const probability = prediction.failure_probability * 100;
-
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-medium text-slate-500">{title}</p>
-
-        <div className="mt-4 flex items-end justify-between">
-          <span className="text-3xl font-semibold tracking-tight text-slate-900">
-            {probability.toFixed(1)}%
-          </span>
-
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${riskColor(
-              prediction.risk_level
-            )}`}
-          >
-            {prediction.risk_level} RISK
-          </span>
-        </div>
-
-        <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-100">
-          <div
-            className="h-full rounded-full bg-blue-600 transition-all"
-            style={{ width: `${probability}%` }}
-          />
-        </div>
-
-        <p className="mt-3 text-xs text-slate-400">
-          Estimated failure probability
-        </p>
-      </div>
-    );
-  }
-
-  function SensorInput({
-    label,
-    value,
-    onChange,
-    unit,
-  }: {
-    label: string;
-    value: string;
-    onChange: (value: string) => void;
-    unit: string;
-  }) {
-    return (
-      <label className="block">
-        <span className="text-sm font-medium text-slate-700">
-          {label}
-        </span>
-
-        <div className="mt-2 flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-blue-500">
-          <input
-            type="number"
-            step="any"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-full bg-transparent py-3 text-sm text-slate-900 outline-none"
-            required
-          />
-          <span className="text-xs text-slate-400">{unit}</span>
-        </div>
-      </label>
-    );
-  }
-
   return (
-    <main className="min-h-screen bg-[#f5f7fb] text-slate-900">
+    <main className="min-h-screen bg-[#f7f8fc] text-gray-900">
+      <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8">
+        {/* Header */}
+        <header className="mb-10">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            MACHINE LEARNING PROJECT
+          </div>
 
-      {/* HEADER */}
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
+            Industrial Machine
+            <span className="block text-indigo-600">
+              Failure Risk Prediction
+            </span>
+          </h1>
 
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-lg font-bold text-white">
-                M
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-500 sm:text-base">
+            Enter machine sensor readings to analyse failure risk using five
+            machine learning and probabilistic techniques.
+          </p>
+        </header>
+
+        {/* Input form */}
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="mb-7">
+            <h2 className="text-xl font-semibold">Machine Sensor Parameters</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Enter the current operating values of the machine.
+            </p>
+          </div>
+
+          <form onSubmit={analyseMachine}>
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Machine Type
+                </label>
+                <select
+                  value={form.machine_type}
+                  onChange={(e) => updateField("machine_type", e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                >
+                  <option value="L">L - Low</option>
+                  <option value="M">M - Medium</option>
+                  <option value="H">H - High</option>
+                </select>
               </div>
 
               <div>
-                <h1 className="text-lg font-bold tracking-tight">
-                  Machine Intelligence
-                </h1>
-                <p className="text-xs text-slate-500">
-                  Predictive Maintenance Platform
-                </p>
+                <label className="mb-2 block text-sm font-medium">
+                  Air Temperature (K)
+                </label>
+                <input
+                  required
+                  type="number"
+                  step="any"
+                  value={form.air_temperature}
+                  onChange={(e) =>
+                    updateField("air_temperature", e.target.value)
+                  }
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Process Temperature (K)
+                </label>
+                <input
+                  required
+                  type="number"
+                  step="any"
+                  value={form.process_temperature}
+                  onChange={(e) =>
+                    updateField("process_temperature", e.target.value)
+                  }
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Rotational Speed (RPM)
+                </label>
+                <input
+                  required
+                  type="number"
+                  step="any"
+                  value={form.rotational_speed}
+                  onChange={(e) =>
+                    updateField("rotational_speed", e.target.value)
+                  }
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Torque (Nm)
+                </label>
+                <input
+                  required
+                  type="number"
+                  step="any"
+                  value={form.torque}
+                  onChange={(e) => updateField("torque", e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Tool Wear (Minutes)
+                </label>
+                <input
+                  required
+                  type="number"
+                  step="any"
+                  value={form.tool_wear}
+                  onChange={(e) => updateField("tool_wear", e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-700">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            Prediction dashboard
-          </div>
-
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-7xl px-6 py-10">
-
-        {/* INTRO */}
-        <section className="mb-8">
-          <p className="text-sm font-medium text-blue-600">
-            INDUSTRIAL ANALYTICS / OVERVIEW
-          </p>
-
-          <h2 className="mt-2 text-3xl font-bold tracking-tight">
-            Machine Health Monitoring
-          </h2>
-
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-            Analyse machine sensor measurements and estimate failure
-            risk using trained machine learning models.
-          </p>
-        </section>
-
-        {/* MAIN GRID */}
-        <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-
-          {/* INPUT PANEL */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold">
-                Machine Sensor Data
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Enter the current machine measurements.
-              </p>
-            </div>
-
-            <div className="mb-5">
-              <label className="text-sm font-medium text-slate-700">
-                Machine Type
-              </label>
-
-              <select
-                value={machineType}
-                onChange={(e) => setMachineType(e.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none focus:border-blue-500"
-              >
-                <option value="L">Low (L)</option>
-                <option value="M">Medium (M)</option>
-                <option value="H">High (H)</option>
-              </select>
-            </div>
-
-            <div className="grid gap-5 sm:grid-cols-2">
-
-              <SensorInput
-                label="Air Temperature"
-                value={airTemperature}
-                onChange={setAirTemperature}
-                unit="K"
-              />
-
-              <SensorInput
-                label="Process Temperature"
-                value={processTemperature}
-                onChange={setProcessTemperature}
-                unit="K"
-              />
-
-              <SensorInput
-                label="Rotational Speed"
-                value={rpm}
-                onChange={setRpm}
-                unit="RPM"
-              />
-
-              <SensorInput
-                label="Torque"
-                value={torque}
-                onChange={setTorque}
-                unit="Nm"
-              />
-
-              <SensorInput
-                label="Tool Wear"
-                value={toolWear}
-                onChange={setToolWear}
-                unit="min"
-              />
-
-            </div>
-
-            <button
-              onClick={predictFailure}
-              disabled={loading}
-              className="mt-8 w-full rounded-xl bg-blue-600 px-5 py-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Analysing machine..." : "Analyse Machine"}
-            </button>
 
             {error && (
-              <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-                {error}
-              </p>
+              <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                <strong>Analysis failed:</strong> {error}
+              </div>
             )}
 
-          </section>
-
-          {/* RESULTS PANEL */}
-          <section className="space-y-6">
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-lg font-semibold">
-                Prediction Results
-              </h3>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Model-based machine failure estimates.
-              </p>
-
-              {!result && (
-                <div className="mt-8 rounded-xl border border-dashed border-slate-300 py-16 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-xl text-blue-600">
-                    ↗
-                  </div>
-
-                  <p className="mt-4 font-medium text-slate-700">
-                    No analysis available
-                  </p>
-
-                  <p className="mt-2 text-sm text-slate-400">
-                    Enter machine sensor values and run an analysis.
-                  </p>
-                </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {loading ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Analysing Machine...
+                </>
+              ) : (
+                "Analyse Machine →"
               )}
+            </button>
+          </form>
+        </section>
 
-              {result && (
-                <div className="mt-6 space-y-4">
-
-                  <PredictionCard
-                    title="Random Forest"
-                    prediction={result.predictions.random_forest}
-                  />
-
-                  <PredictionCard
-                    title="Logistic Regression"
-                    prediction={result.predictions.logistic_regression}
-                  />
-
-                  <PredictionCard
-                    title="PCA + Logistic Regression"
-                    prediction={result.predictions.pca_logistic_regression}
-                  />
-
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
-              <h3 className="font-semibold text-blue-950">
-                Analysis information
-              </h3>
-
-              <p className="mt-2 text-sm leading-6 text-blue-900/70">
-                Predictions are generated from the trained AI4I
-                predictive maintenance models. Risk thresholds are
-                provisional and have not been calibrated for real
-                industrial operating conditions.
+        {/* Results */}
+        {results && (
+          <section className="mt-12">
+            <div className="mb-7">
+              <div className="text-xs font-semibold uppercase tracking-widest text-indigo-600">
+                Analysis Complete
+              </div>
+              <h2 className="mt-2 text-2xl font-bold">
+                Machine Analysis Results
+              </h2>
+              <p className="mt-2 text-sm text-gray-500">
+                Outputs from all five selected academic topics.
               </p>
             </div>
 
-          </section>
-        </div>
+            <div className="grid gap-5 lg:grid-cols-2">
+              {modelSections.map((section) => (
+                <PredictionCard
+                  key={section.key}
+                  number={section.number}
+                  title={section.title}
+                  description={section.description}
+                  prediction={results[section.key]}
+                />
+              ))}
+            </div>
 
-        {/* FOOTER */}
-        <footer className="mt-12 border-t border-slate-200 pt-6 text-xs text-slate-400">
-          Industrial Machine Failure Risk Prediction System
-          <span className="float-right">Machine Learning Project</span>
+            <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5">
+              <h3 className="font-semibold text-amber-900">
+                Important interpretation notes
+              </h3>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-amber-800">
+                <li>
+                  The dataset contains synthetic machine operating data.
+                </li>
+                <li>
+                  Model probabilities are estimates and should not be treated
+                  as calibrated real-world failure probabilities.
+                </li>
+                <li>
+                  The HMM output represents hidden-state inference from one
+                  observation, not temporal degradation prediction.
+                </li>
+                <li>
+                  Bayes Rule reports conditional probabilities for individual
+                  sensor conditions; these values should not be added together.
+                </li>
+              </ul>
+            </div>
+          </section>
+        )}
+
+        {/* Initial state */}
+        {!results && !loading && (
+          <div className="mt-8 rounded-2xl border border-dashed border-gray-300 bg-white/60 px-6 py-10 text-center">
+            <div className="text-3xl">⌁</div>
+            <h3 className="mt-3 font-semibold text-gray-800">
+              Ready to analyse your machine
+            </h3>
+            <p className="mt-2 text-sm text-gray-500">
+              Enter the sensor parameters above and click Analyse Machine to
+              view all five model outputs.
+            </p>
+          </div>
+        )}
+
+        <footer className="mt-12 border-t border-gray-200 pt-6 text-center text-xs text-gray-400">
+          Industrial Machine Failure Risk Prediction · AI/ML Academic Project
         </footer>
-
       </div>
     </main>
   );
