@@ -1,0 +1,12 @@
+Feature,Importance
+num__rotational_speed,0.2173701233545486
+num__torque,0.18036076767549075
+num__mechanical_power,0.17908796174222105
+num__tool_wear,0.14086955489903022
+num__wear_torque_interaction,0.11501658971690625
+num__temperature_difference,0.08271945106746377
+num__air_temperature,0.0472282153485442
+num__process_temperature,0.02707362718259592
+cat__type_M,0.004132892885024768
+cat__type_L,0.004100390699226387
+cat__type_H,0.0020404254289480774
